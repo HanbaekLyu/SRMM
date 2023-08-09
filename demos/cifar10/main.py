@@ -21,14 +21,16 @@ def get_parser():
                         choices=['resnet', 'densenet'])
     parser.add_argument('--optim', default='srmm', type=str, help='optimizer',
                         choices=['srmm', 'sgd', 'adagrad', 'adam', 'amsgrad', 'adabound', 'amsbound'])
-    parser.add_argument('--lr', default=1, type=float, help='learning rate')
+    parser.add_argument('--ilr', default=10, type=float, help='inverse learning rate')
+    parser.add_argument('--pr', default=0, type=float, help='proximal regularizaiton coefficient')
+    parser.add_argument('--beta', default=0.5, type=float, help='srmm weight decay power')
+    parser.add_argument('--L', default=391, type=float, help='srmm memory length')
+    parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
     parser.add_argument('--final_lr', default=0.1, type=float,
                         help='final learning rate of AdaBound')
     parser.add_argument('--gamma', default=1e-3, type=float,
                         help='convergence speed term of AdaBound')
     parser.add_argument('--momentum', default=0.9, type=float, help='momentum term')
-    parser.add_argument('--beta', default=0.5, type=float, help='srmm weight decay power')
-    parser.add_argument('--L', default=391, type=float, help='srmm memory length')
     parser.add_argument('--beta1', default=0.9, type=float, help='Adam coefficients beta_1')
     parser.add_argument('--beta2', default=0.999, type=float, help='Adam coefficients beta_2')
     parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
@@ -65,10 +67,10 @@ def build_dataset():
     return train_loader, test_loader
 
 
-def get_ckpt_name(model='resnet', optimizer='sgd', lr=0.1, final_lr=0.1, momentum=0.9, beta=0.5,
+def get_ckpt_name(model='resnet', optimizer='sgd', ilr=10, lr=0.1, pr=0, final_lr=0.1, momentum=0.9, beta=0.5,
                   beta1=0.9, beta2=0.999, gamma=1e-3):
     name = {
-        'srmm': 'lr{}-beta{}'.format(lr, beta),
+        'srmm': 'ilr{}-pr{}-beta{}'.format(ilr, pr, beta),
         'sgd': 'lr{}-momentum{}'.format(lr, momentum),
         'adagrad': 'lr{}'.format(lr),
         'adam': 'lr{}-betas{}-{}'.format(lr, beta1, beta2),
@@ -117,7 +119,7 @@ def create_optimizer(args, model_params):
         return optim.Adam(model_params, args.lr, betas=(args.beta1, args.beta2),
                           weight_decay=args.weight_decay, amsgrad=True)
     elif args.optim == 'srmm':
-        return SRMM(model_params, args.lr, beta=(args.beta), L=args.L)
+        return SRMM(model_params, args.ilr, args.pr, beta=(args.beta), L=args.L)
     elif args.optim == 'adabound':
         return AdaBound(model_params, args.lr, betas=(args.beta1, args.beta2),
                         final_lr=args.final_lr, gamma=args.gamma,
@@ -186,6 +188,7 @@ def main():
 
     ckpt_name = get_ckpt_name(model=args.model, optimizer=args.optim, lr=args.lr,
                               final_lr=args.final_lr, momentum=args.momentum,
+                              ilr=args.ilr, beta = args.beta, pr=args.pr,
                               beta1=args.beta1, beta2=args.beta2, gamma=args.gamma)
     if args.resume:
         ckpt = load_checkpoint(ckpt_name)
@@ -205,7 +208,7 @@ def main():
     train_accuracies = []
     test_accuracies = []
 
-    for epoch in range(start_epoch + 1, 200):
+    for epoch in range(start_epoch + 1, 130):
         scheduler.step()
         train_acc = train(net, epoch, device, train_loader, optimizer, criterion)
         test_acc = test(net, device, test_loader, criterion)
